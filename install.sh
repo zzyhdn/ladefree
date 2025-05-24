@@ -43,11 +43,29 @@ command_exists() {
 }
 
 check_lade_cli() {
-    command -v "$LADE_CLI_NAME" &> /dev/null
+    command_exists "$LADE_CLI_NAME"
+}
+
+ensure_lade_login() {
+    echo ""
+    echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
+    if ! lade apps list &> /dev/null; then
+        echo -e "${YELLOW}Lade 登录会话已过期或未登录。${NC}请根据提示输入您的 Lade 登录凭据。"
+        lade login
+        if [ $? -ne 0 ]; then
+            echo -e "${RED}错误：Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}Lade 登录成功！${NC}"
+    else
+        echo -e "${GREEN}Lade 已登录。${NC}"
+    fi
 }
 
 deploy_app() {
     display_section_header "部署 Lade 应用"
+
+    ensure_lade_login
 
     read -p "请输入您要部署的 Lade 应用名称 (例如: my-ladefree-app): " LADE_APP_NAME
     if [ -z "$LADE_APP_NAME" ]; then
@@ -57,7 +75,7 @@ deploy_app() {
 
     echo "正在检查应用 '${LADE_APP_NAME}' 是否存在..."
     local app_exists="false"
-    if lade apps list &> /dev/null && lade apps list | grep -qw "${LADE_APP_NAME}"; then
+    if lade apps list | grep -qw "${LADE_APP_NAME}"; then
         app_exists="true"
     fi
 
@@ -127,6 +145,8 @@ deploy_app() {
 view_apps() {
     display_section_header "查看所有 Lade 应用"
 
+    ensure_lade_login
+
     lade apps list
     if [ $? -ne 0 ]; then
         echo -e "${RED}错误：无法获取应用列表。请检查网络或 Lade CLI 状态。${NC}"
@@ -135,6 +155,8 @@ view_apps() {
 
 delete_app() {
     display_section_header "删除 Lade 应用"
+
+    ensure_lade_login
 
     read -p "请输入您要删除的 Lade 应用名称: " APP_TO_DELETE
     if [ -z "${APP_TO_DELETE}" ]; then
@@ -160,6 +182,8 @@ delete_app() {
 
 view_app_logs() {
     display_section_header "查看 Lade 应用日志"
+
+    ensure_lade_login
 
     read -p "请输入您要查看日志的 Lade 应用名称: " APP_FOR_LOGS
     if [ -z "$APP_FOR_LOGS" ]; then
@@ -285,17 +309,19 @@ while true; do
     echo -e "${GREEN}2. ${NC}查看所有 Lade 应用"
     echo -e "${GREEN}3. ${NC}删除 Lade 应用"
     echo -e "${GREEN}4. ${NC}查看应用日志"
-    echo -e "${RED}5. ${NC}退出"
+    echo -e "${GREEN}5. ${NC}刷新 Lade 登录状态"
+    echo -e "${RED}6. ${NC}退出"
     echo -e "${CYAN}-------------------------------------------------------------${NC}"
-    read -p "请选择一个操作 (1-5): " CHOICE
+    read -p "请选择一个操作 (1-6): " CHOICE
 
     case "$CHOICE" in
         1) deploy_app ;;
         2) view_apps ;;
         3) delete_app ;;
         4) view_app_logs ;;
-        5) echo -e "${CYAN}退出脚本。再见！${NC}"; break ;;
-        *) echo -e "${RED}无效的选择，请输入 1 到 5 之间的数字。${NC}" ;;
+        5) ensure_lade_login ;;
+        6) echo -e "${CYAN}退出脚本。再见！${NC}"; break ;;
+        *) echo -e "${RED}无效的选择，请输入 1 到 6 之间的数字。${NC}" ;;
     esac
     echo ""
     read -p "按 Enter 键继续..."
