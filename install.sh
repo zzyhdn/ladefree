@@ -46,11 +46,23 @@ check_lade_cli() {
     command_exists "$LADE_CLI_NAME"
 }
 
-# 修改后的 ensure_lade_login 函数：只检查登录状态，未登录则提示手动登录并退出
+# 检查 Lade 登录状态函数
+# 如果未登录，会提示用户手动登录并退出脚本，以确保登录过程由用户完全控制。
 ensure_lade_login() {
     echo ""
     echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
-    if ! lade apps list &> /dev/null; then
+    # 使用 timeout 命令限制 lade apps list 的执行时间，避免因网络或服务问题导致卡死
+    # &> /dev/null 用于抑制 lade apps list 的所有输出，脚本只关心其退出状态码
+    if ! timeout 10 lade apps list &> /dev/null; then
+        # $? 存储上一个命令的退出状态码
+        # 如果退出码是 124，表示命令超时
+        if [ $? -eq 124 ]; then
+            echo -e "${RED}错误：检查 Lade 登录状态超时 (10秒)。${NC}"
+            echo -e "${YELLOW}这可能是网络连接问题、Lade 服务暂时不可用或响应缓慢。${NC}"
+            echo -e "${YELLOW}请检查您的网络连接，或稍后再试。您也可以尝试手动运行 'lade login' 或 'lade apps list' 进行调试。${NC}"
+            exit 1 # 超时也导致脚本退出
+        fi
+        # 如果不是超时（例如，是未登录的正常退出码），则按原逻辑处理
         echo -e "${RED}Lade 登录会话已过期或未登录。${NC}"
         echo -e "${YELLOW}请手动运行以下命令进行登录：${NC}"
         echo -e "${BLUE}    lade login${NC}"
@@ -244,6 +256,8 @@ install_lade_cli() {
             fi
             file_extension=".tar.gz" ;;
         windows)
+            # Note: Windows scripts are typically .bat or .ps1, not .sh. This part is for completeness
+            # if running through WSL or Cygwin, but direct Windows cmd/powershell might not use this.
             if [ "${arch_type}" == "x86_64" ]; then
                 arch_suffix="-amd64"
                 echo -e "${BLUE}检测到 Windows AMD64 (x86_64) 架构。${NC}"
@@ -263,6 +277,9 @@ install_lade_cli() {
     if [ "${file_extension}" == ".tar.gz" ] && ! command_exists tar; then echo -e "${RED}错误：'tar' 命令未找到。请安装 tar 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
     if [ "${file_extension}" == ".zip" ] && ! command_exists unzip; then echo -e "${RED}错误：'unzip' 命令未找到。请安装 unzip 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
     if ! command_exists awk; then echo -e "${RED}错误：'awk' 命令未找到。请安装 awk 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
+    # Add check for 'timeout' command
+    if ! command_exists timeout; then echo -e "${RED}错误：'timeout' 命令未找到。请安装 coreutils (Linux) 或 findutils (macOS) 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
+
 
     echo "正在获取最新版本的 Lade CLI..."
     local latest_release_tag=$(curl -s "https://api.github.com/repos/lade-io/lade/releases/latest" | awk -F'"' '/"tag_name":/{print $4}')
@@ -308,17 +325,17 @@ while true; do
     echo -e "${GREEN}2. ${NC}查看所有 Lade 应用"
     echo -e "${GREEN}3. ${NC}删除 Lade 应用"
     echo -e "${GREEN}4. ${NC}查看应用日志"
-    echo -e "${RED}5. ${NC}退出" # 移除“刷新登录状态”，将退出改为 5
+    echo -e "${RED}5. ${NC}退出"
     echo -e "${CYAN}-------------------------------------------------------------${NC}"
-    read -p "请选择一个操作 (1-5): " CHOICE # 调整提示
+    read -p "请选择一个操作 (1-5): " CHOICE
 
     case "$CHOICE" in
         1) deploy_app ;;
         2) view_apps ;;
         3) delete_app ;;
         4) view_app_logs ;;
-        5) echo -e "${CYAN}退出脚本。再见！${NC}"; break ;; # 调整选项为退出
-        *) echo -e "${RED}无效的选择，请输入 1 到 5 之间的数字。${NC}" ;; # 调整提示
+        5) echo -e "${CYAN}退出脚本。再见！${NC}"; break ;;
+        *) echo -e "${RED}无效的选择，请输入 1 到 5 之间的数字。${NC}" ;;
     esac
     echo ""
     read -p "按 Enter 键继续..."
