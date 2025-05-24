@@ -19,7 +19,7 @@ display_welcome() {
     clear
     echo -e "${CYAN}#############################################################${NC}"
     echo -e "${CYAN}#${NC}                                                           ${CYAN}#${NC}"
-    echo -e "${CYAN}#${NC}        ${BLUE}欢迎使用 Lade CLI 多功能管理脚本 v1.0.0${NC}        ${CYAN}#${NC}"
+    echo -e "${CYAN}#${NC}         ${BLUE}欢迎使用 Lade CLI 多功能管理脚本 v1.0.0${NC}         ${CYAN}#${NC}"
     echo -e "${CYAN}#${NC}                                                           ${CYAN}#${NC}"
     echo -e "${CYAN}#############################################################${NC}"
     echo -e "${GREEN}"
@@ -46,53 +46,25 @@ check_lade_cli() {
     command_exists "$LADE_CLI_NAME"
 }
 
-# 修改后的 perform_lade_login 函数，引导用户手动登录
-perform_lade_login() {
-    echo ""
-    echo -e "${PURPLE}--- Lade 登录提示 ---${NC}"
-    echo -e "${RED}警告：由于环境限制，Lade CLI 无法在脚本中直接弹出登录交互。${NC}"
-    echo -e "${YELLOW}请您按照以下步骤操作：${NC}"
-    echo -e "${YELLOW}1. ${NC}  ${BLUE}打开一个新的终端窗口（或标签页）。${NC}"
-    echo -e "${YELLOW}2. ${NC}  在新终端中，手动执行命令：${BLUE}lade login${NC}"
-    echo -e "${YELLOW}3. ${NC}  在新终端中按照提示完成登录。${NC}"
-    echo -e "${YELLOW}4. ${NC}  登录成功后，回到本脚本所在的终端，并按 Enter 键继续。${NC}"
-    echo ""
-    read -p "完成 Lade 登录后，请按 Enter 键继续..."
-
-    # 再次检查登录状态，以确认用户已登录
-    if lade apps list &> /dev/null; then
-        echo -e "${GREEN}Lade 登录状态已确认。${NC}"
-        return 0
-    else
-        echo -e "${RED}错误：Lade 登录状态未确认。请确保您已在新终端中成功登录。${NC}"
-        return 1 # 登录未成功，返回非0
-    fi
-}
-
-# 检查登录状态的函数，只判断是否已登录，不执行登录操作
-check_login_status() {
+# 修改后的 ensure_lade_login 函数：只检查登录状态，未登录则提示手动登录并退出
+ensure_lade_login() {
     echo ""
     echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
-    if lade apps list &> /dev/null; then
-        echo -e "${GREEN}Lade 已登录。${NC}"
-        return 0
+    if ! lade apps list &> /dev/null; then
+        echo -e "${RED}Lade 登录会话已过期或未登录。${NC}"
+        echo -e "${YELLOW}请手动运行以下命令进行登录：${NC}"
+        echo -e "${BLUE}    lade login${NC}"
+        echo -e "${RED}登录成功后，请重新运行此脚本或选择您要执行的操作。${NC}"
+        exit 1 # 强制退出脚本，要求用户手动登录后重新运行
     else
-        echo -e "${YELLOW}Lade 未登录或登录会话已过期。${NC}"
-        return 1
+        echo -e "${GREEN}Lade 已登录。${NC}"
     fi
 }
 
 deploy_app() {
     display_section_header "部署 Lade 应用"
 
-    # 在执行此操作前，先确保登录状态
-    if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
-        if ! perform_lade_login; then # 引导用户手动登录
-            echo -e "${RED}部署失败：需要登录才能继续。${NC}"
-            return
-        fi
-    fi
+    ensure_lade_login
 
     read -p "请输入您要部署的 Lade 应用名称 (例如: my-ladefree-app): " LADE_APP_NAME
     if [ -z "$LADE_APP_NAME" ]; then
@@ -111,10 +83,7 @@ deploy_app() {
     else
         echo -e "${YELLOW}应用 '${LADE_APP_NAME}' 不存在，将尝试创建新应用。${NC}"
         echo -e "${CYAN}注意：创建应用将交互式询问 'Plan' 和 'Region'，请手动选择。${NC}"
-        # 即使这里仍可能需要交互，鉴于 lade login 的问题，
-        # 如果这里也卡住，可能需要用户在新终端执行 `lade apps create`
-        # 但我们先保持尝试直接调用，因为 create 的交互可能比 login 简单
-        lade apps create "${LADE_APP_NAME}" </dev/tty
+        lade apps create "${LADE_APP_NAME}"
         if [ $? -ne 0 ]; then
             echo -e "${RED}错误：Lade 应用创建失败。请检查输入或应用名称是否可用。${NC}"
             return
@@ -175,13 +144,7 @@ deploy_app() {
 view_apps() {
     display_section_header "查看所有 Lade 应用"
 
-    if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
-        if ! perform_lade_login; then
-            echo -e "${RED}操作失败：需要登录才能查看应用列表。${NC}"
-            return
-        fi
-    fi
+    ensure_lade_login
 
     lade apps list
     if [ $? -ne 0 ]; then
@@ -192,13 +155,7 @@ view_apps() {
 delete_app() {
     display_section_header "删除 Lade 应用"
 
-    if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
-        if ! perform_lade_login; then
-            echo -e "${RED}操作失败：需要登录才能删除应用。${NC}"
-            return
-        fi
-    fi
+    ensure_lade_login
 
     read -p "请输入您要删除的 Lade 应用名称: " APP_TO_DELETE
     if [ -z "${APP_TO_DELETE}" ]; then
@@ -225,20 +182,13 @@ delete_app() {
 view_app_logs() {
     display_section_header "查看 Lade 应用日志"
 
-    if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
-        if ! perform_lade_login; then
-            echo -e "${RED}操作失败：需要登录才能查看应用日志。${NC}"
-            return
-        fi
-    fi
+    ensure_lade_login
 
-    echo -e "${CYAN}请注意：Lade 日志可能需要登录凭据。如果您遇到问题，请先手动登录 Lade。${NC}" # 额外提示
     read -p "请输入您要查看日志的 Lade 应用名称: " APP_FOR_LOGS
     if [ -z "$APP_FOR_LOGS" ]; then
         echo -e "${YELLOW}应用名称不能为空。取消查看日志。${NC}"
         return
-    }
+    fi
 
     echo -e "${CYAN}正在查看应用 '${APP_FOR_LOGS}' 的实时日志 (按 Ctrl+C 停止)...${NC}"
     lade logs -a "$APP_FOR_LOGS" -f
@@ -352,25 +302,23 @@ install_lade_cli || exit 1
 while true; do
     echo ""
     echo -e "${CYAN}#############################################################${NC}"
-    echo -e "${CYAN}#${NC}        ${BLUE}Lade 管理主菜单${NC}                          ${CYAN}#${NC}"
+    echo -e "${CYAN}#${NC}         ${BLUE}Lade 管理主菜单${NC}                               ${CYAN}#${NC}"
     echo -e "${CYAN}#############################################################${NC}"
-    echo -e "${GREEN}1. ${NC}Lade 登录 (按提示操作)" # 修改菜单项名称以明确提示
-    echo -e "${GREEN}2. ${NC}部署 Ladefree 应用"
-    echo -e "${GREEN}3. ${NC}查看所有 Lade 应用"
-    echo -e "${GREEN}4. ${NC}删除 Lade 应用"
-    echo -e "${GREEN}5. ${NC}查看应用日志"
-    echo -e "${RED}6. ${NC}退出"
+    echo -e "${GREEN}1. ${NC}部署 Ladefree 应用"
+    echo -e "${GREEN}2. ${NC}查看所有 Lade 应用"
+    echo -e "${GREEN}3. ${NC}删除 Lade 应用"
+    echo -e "${GREEN}4. ${NC}查看应用日志"
+    echo -e "${RED}5. ${NC}退出" # 移除“刷新登录状态”，将退出改为 5
     echo -e "${CYAN}-------------------------------------------------------------${NC}"
-    read -p "请选择一个操作 (1-6): " CHOICE
+    read -p "请选择一个操作 (1-5): " CHOICE # 调整提示
 
     case "$CHOICE" in
-        1) perform_lade_login ;; # 菜单选项1直接调用 perform_lade_login
-        2) deploy_app ;;
-        3) view_apps ;;
-        4) delete_app ;;
-        5) view_app_logs ;;
-        6) echo -e "${CYAN}退出脚本。再见！${NC}"; break ;;
-        *) echo -e "${RED}无效的选择，请输入 1 到 6 之间的数字。${NC}" ;;
+        1) deploy_app ;;
+        2) view_apps ;;
+        3) delete_app ;;
+        4) view_app_logs ;;
+        5) echo -e "${CYAN}退出脚本。再见！${NC}"; break ;; # 调整选项为退出
+        *) echo -e "${RED}无效的选择，请输入 1 到 5 之间的数字。${NC}" ;; # 调整提示
     esac
     echo ""
     read -p "按 Enter 键继续..."
