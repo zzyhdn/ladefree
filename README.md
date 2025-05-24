@@ -48,7 +48,7 @@
     打开 PowerShell 并运行以下命令：
 
     ```powershell
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/byJoey/ladefree/main/lade-manager.ps1" -OutFile "$env:TEMP\lade-manager.ps1"; PowerShell -ExecutionPolicy Bypass -File "$env:TEMP\lade-manager.ps1"; Remove-Item "$env:TEMP\lade-manager.ps1" -ErrorAction SilentlyContinue
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/byJoey/ladefree/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; PowerShell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1"; Remove-Item "$env:TEMP\install.ps1" -ErrorAction SilentlyContinue
     ```
 
 
