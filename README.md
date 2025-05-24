@@ -28,7 +28,7 @@
     直接在终端中运行以下命令即可自动下载并执行脚本。
 
     ```bash
-    curl -sSL https://raw.githubusercontent.com/byJoey/ladefree/main/install.sh | bash
+    bash <(curl -l -s https://raw.githubusercontent.com/byJoey/ladefree/refs/heads/main/install.sh)
     ```
 
 
