@@ -49,9 +49,11 @@ check_lade_cli() {
 ensure_lade_login() {
     echo ""
     echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
+    # 尝试列出应用以检查登录状态，将标准输出和错误重定向到 /dev/null
     if ! lade apps list &> /dev/null; then
         echo -e "${YELLOW}Lade 登录会话已过期或未登录。${NC}请根据提示输入您的 Lade 登录凭据。"
-        lade login
+        # 强制将标准输入重定向到 /dev/tty，以便 lade login 可以接收用户输入
+        lade login </dev/tty
         if [ $? -ne 0 ]; then
             echo -e "${RED}错误：Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
             exit 1
@@ -84,7 +86,9 @@ deploy_app() {
     else
         echo -e "${YELLOW}应用 '${LADE_APP_NAME}' 不存在，将尝试创建新应用。${NC}"
         echo -e "${CYAN}注意：创建应用将交互式询问 'Plan' 和 'Region'，请手动选择。${NC}"
-        lade apps create "${LADE_APP_NAME}"
+        # 同样，为 ensure_lade_login 之外的 lade apps create 也可能需要 /dev/tty
+        # 如果创建应用时也有交互式输入问题，可以考虑添加 </dev/tty
+        lade apps create "${LADE_APP_NAME}" </dev/tty
         if [ $? -ne 0 ]; then
             echo -e "${RED}错误：Lade 应用创建失败。请检查输入或应用名称是否可用。${NC}"
             return
@@ -245,6 +249,8 @@ install_lade_cli() {
             fi
             file_extension=".tar.gz" ;;
         windows)
+            # 注意：在 Bash 脚本中直接运行 Windows 可执行文件通常需要 WSL 或 Cygwin
+            # 这里的逻辑是为下载正确的文件，但在非原生 Windows shell 中运行可能需要特殊处理
             if [ "${arch_type}" == "x86_64" ]; then
                 arch_suffix="-amd64"
                 echo -e "${BLUE}检测到 Windows AMD64 (x86_64) 架构。${NC}"
