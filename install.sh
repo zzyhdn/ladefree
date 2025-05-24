@@ -46,21 +46,30 @@ check_lade_cli() {
     command_exists "$LADE_CLI_NAME"
 }
 
-# 核心登录逻辑，可以被菜单直接调用，也可以被其他函数调用来检查并按需登录
+# 修改后的 perform_lade_login 函数，引导用户手动登录
 perform_lade_login() {
     echo ""
-    echo -e "${PURPLE}--- Lade 登录 ---${NC}"
-    echo -e "${YELLOW}请根据提示输入您的 Lade 登录凭据。${NC}"
-    lade login </dev/tty
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}错误：Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
-        return 1 # 登录失败时返回非0
+    echo -e "${PURPLE}--- Lade 登录提示 ---${NC}"
+    echo -e "${RED}警告：由于环境限制，Lade CLI 无法在脚本中直接弹出登录交互。${NC}"
+    echo -e "${YELLOW}请您按照以下步骤操作：${NC}"
+    echo -e "${YELLOW}1. ${NC}  ${BLUE}打开一个新的终端窗口（或标签页）。${NC}"
+    echo -e "${YELLOW}2. ${NC}  在新终端中，手动执行命令：${BLUE}lade login${NC}"
+    echo -e "${YELLOW}3. ${NC}  在新终端中按照提示完成登录。${NC}"
+    echo -e "${YELLOW}4. ${NC}  登录成功后，回到本脚本所在的终端，并按 Enter 键继续。${NC}"
+    echo ""
+    read -p "完成 Lade 登录后，请按 Enter 键继续..."
+
+    # 再次检查登录状态，以确认用户已登录
+    if lade apps list &> /dev/null; then
+        echo -e "${GREEN}Lade 登录状态已确认。${NC}"
+        return 0
+    else
+        echo -e "${RED}错误：Lade 登录状态未确认。请确保您已在新终端中成功登录。${NC}"
+        return 1 # 登录未成功，返回非0
     fi
-    echo -e "${GREEN}Lade 登录成功！${NC}"
-    return 0 # 登录成功时返回0
 }
 
-# 检查登录状态的函数，不强制登录，只判断是否已登录
+# 检查登录状态的函数，只判断是否已登录，不执行登录操作
 check_login_status() {
     echo ""
     echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
@@ -78,9 +87,9 @@ deploy_app() {
 
     # 在执行此操作前，先确保登录状态
     if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
-        if ! perform_lade_login; then # 尝试自动登录
-            echo -e "${RED}部署失败：登录 Lade 失败，无法继续。${NC}"
+        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
+        if ! perform_lade_login; then # 引导用户手动登录
+            echo -e "${RED}部署失败：需要登录才能继续。${NC}"
             return
         fi
     fi
@@ -102,7 +111,10 @@ deploy_app() {
     else
         echo -e "${YELLOW}应用 '${LADE_APP_NAME}' 不存在，将尝试创建新应用。${NC}"
         echo -e "${CYAN}注意：创建应用将交互式询问 'Plan' 和 'Region'，请手动选择。${NC}"
-        lade apps create "${LADE_APP_NAME}" </dev/tty # 确保创建应用时也能交互
+        # 即使这里仍可能需要交互，鉴于 lade login 的问题，
+        # 如果这里也卡住，可能需要用户在新终端执行 `lade apps create`
+        # 但我们先保持尝试直接调用，因为 create 的交互可能比 login 简单
+        lade apps create "${LADE_APP_NAME}" </dev/tty
         if [ $? -ne 0 ]; then
             echo -e "${RED}错误：Lade 应用创建失败。请检查输入或应用名称是否可用。${NC}"
             return
@@ -164,9 +176,9 @@ view_apps() {
     display_section_header "查看所有 Lade 应用"
 
     if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
+        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
         if ! perform_lade_login; then
-            echo -e "${RED}操作失败：登录 Lade 失败，无法查看应用列表。${NC}"
+            echo -e "${RED}操作失败：需要登录才能查看应用列表。${NC}"
             return
         fi
     fi
@@ -181,9 +193,9 @@ delete_app() {
     display_section_header "删除 Lade 应用"
 
     if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
+        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
         if ! perform_lade_login; then
-            echo -e "${RED}操作失败：登录 Lade 失败，无法删除应用。${NC}"
+            echo -e "${RED}操作失败：需要登录才能删除应用。${NC}"
             return
         fi
     fi
@@ -214,18 +226,19 @@ view_app_logs() {
     display_section_header "查看 Lade 应用日志"
 
     if ! check_login_status; then
-        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
+        echo -e "${YELLOW}您尚未登录 Lade。${NC}"
         if ! perform_lade_login; then
-            echo -e "${RED}操作失败：登录 Lade 失败，无法查看应用日志。${NC}"
+            echo -e "${RED}操作失败：需要登录才能查看应用日志。${NC}"
             return
         fi
     fi
 
+    echo -e "${CYAN}请注意：Lade 日志可能需要登录凭据。如果您遇到问题，请先手动登录 Lade。${NC}" # 额外提示
     read -p "请输入您要查看日志的 Lade 应用名称: " APP_FOR_LOGS
     if [ -z "$APP_FOR_LOGS" ]; then
         echo -e "${YELLOW}应用名称不能为空。取消查看日志。${NC}"
         return
-    fi
+    }
 
     echo -e "${CYAN}正在查看应用 '${APP_FOR_LOGS}' 的实时日志 (按 Ctrl+C 停止)...${NC}"
     lade logs -a "$APP_FOR_LOGS" -f
@@ -341,7 +354,7 @@ while true; do
     echo -e "${CYAN}#############################################################${NC}"
     echo -e "${CYAN}#${NC}        ${BLUE}Lade 管理主菜单${NC}                          ${CYAN}#${NC}"
     echo -e "${CYAN}#############################################################${NC}"
-    echo -e "${GREEN}1. ${NC}Lade 登录 (强制)" # 新增选项，并明确提示是强制登录
+    echo -e "${GREEN}1. ${NC}Lade 登录 (按提示操作)" # 修改菜单项名称以明确提示
     echo -e "${GREEN}2. ${NC}部署 Ladefree 应用"
     echo -e "${GREEN}3. ${NC}查看所有 Lade 应用"
     echo -e "${GREEN}4. ${NC}删除 Lade 应用"
