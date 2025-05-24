@@ -46,9 +46,11 @@ check_lade_cli() {
     command_exists "$LADE_CLI_NAME"
 }
 
+# 修改后的 ensure_lade_login 函数，现在可以单独作为菜单选项调用
+# 同时，它在需要登录的操作中仍然会被调用以检查登录状态
 ensure_lade_login() {
     echo ""
-    echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
+    echo -e "${PURPLE}--- 检查/刷新 Lade 登录状态 ---${NC}"
     # 尝试列出应用以检查登录状态，将标准输出和错误重定向到 /dev/null
     if ! lade apps list &> /dev/null; then
         echo -e "${YELLOW}Lade 登录会话已过期或未登录。${NC}请根据提示输入您的 Lade 登录凭据。"
@@ -56,18 +58,23 @@ ensure_lade_login() {
         lade login </dev/tty
         if [ $? -ne 0 ]; then
             echo -e "${RED}错误：Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
-            exit 1
+            return 1 # 登录失败时返回非0，以便调用者可以判断
         fi
         echo -e "${GREEN}Lade 登录成功！${NC}"
     else
         echo -e "${GREEN}Lade 已登录。${NC}"
     fi
+    return 0 # 登录成功或已登录时返回0
 }
 
 deploy_app() {
     display_section_header "部署 Lade 应用"
 
-    ensure_lade_login
+    # 在执行此操作前，先确保登录状态
+    if ! ensure_lade_login; then
+        echo -e "${RED}部署失败：需要登录才能继续。${NC}"
+        return
+    fi
 
     read -p "请输入您要部署的 Lade 应用名称 (例如: my-ladefree-app): " LADE_APP_NAME
     if [ -z "$LADE_APP_NAME" ]; then
@@ -86,7 +93,6 @@ deploy_app() {
     else
         echo -e "${YELLOW}应用 '${LADE_APP_NAME}' 不存在，将尝试创建新应用。${NC}"
         echo -e "${CYAN}注意：创建应用将交互式询问 'Plan' 和 'Region'，请手动选择。${NC}"
-        # 同样，为 ensure_lade_login 之外的 lade apps create 也可能需要 /dev/tty
         # 如果创建应用时也有交互式输入问题，可以考虑添加 </dev/tty
         lade apps create "${LADE_APP_NAME}" </dev/tty
         if [ $? -ne 0 ]; then
@@ -149,7 +155,10 @@ deploy_app() {
 view_apps() {
     display_section_header "查看所有 Lade 应用"
 
-    ensure_lade_login
+    if ! ensure_lade_login; then
+        echo -e "${RED}操作失败：需要登录才能查看应用列表。${NC}"
+        return
+    fi
 
     lade apps list
     if [ $? -ne 0 ]; then
@@ -160,7 +169,10 @@ view_apps() {
 delete_app() {
     display_section_header "删除 Lade 应用"
 
-    ensure_lade_login
+    if ! ensure_lade_login; then
+        echo -e "${RED}操作失败：需要登录才能删除应用。${NC}"
+        return
+    fi
 
     read -p "请输入您要删除的 Lade 应用名称: " APP_TO_DELETE
     if [ -z "${APP_TO_DELETE}" ]; then
@@ -187,7 +199,10 @@ delete_app() {
 view_app_logs() {
     display_section_header "查看 Lade 应用日志"
 
-    ensure_lade_login
+    if ! ensure_lade_login; then
+        echo -e "${RED}操作失败：需要登录才能查看应用日志。${NC}"
+        return
+    fi
 
     read -p "请输入您要查看日志的 Lade 应用名称: " APP_FOR_LOGS
     if [ -z "$APP_FOR_LOGS" ]; then
@@ -311,21 +326,21 @@ while true; do
     echo -e "${CYAN}#############################################################${NC}"
     echo -e "${CYAN}#${NC}        ${BLUE}Lade 管理主菜单${NC}                          ${CYAN}#${NC}"
     echo -e "${CYAN}#############################################################${NC}"
-    echo -e "${GREEN}1. ${NC}部署 Ladefree 应用"
-    echo -e "${GREEN}2. ${NC}查看所有 Lade 应用"
-    echo -e "${GREEN}3. ${NC}删除 Lade 应用"
-    echo -e "${GREEN}4. ${NC}查看应用日志"
-    echo -e "${GREEN}5. ${NC}刷新 Lade 登录状态"
+    echo -e "${GREEN}1. ${NC}Lade 登录/刷新登录状态" # 新增选项
+    echo -e "${GREEN}2. ${NC}部署 Ladefree 应用"
+    echo -e "${GREEN}3. ${NC}查看所有 Lade 应用"
+    echo -e "${GREEN}4. ${NC}删除 Lade 应用"
+    echo -e "${GREEN}5. ${NC}查看应用日志"
     echo -e "${RED}6. ${NC}退出"
     echo -e "${CYAN}-------------------------------------------------------------${NC}"
     read -p "请选择一个操作 (1-6): " CHOICE
 
     case "$CHOICE" in
-        1) deploy_app ;;
-        2) view_apps ;;
-        3) delete_app ;;
-        4) view_app_logs ;;
-        5) ensure_lade_login ;;
+        1) ensure_lade_login ;; # 调用登录函数
+        2) deploy_app ;;
+        3) view_apps ;;
+        4) delete_app ;;
+        5) view_app_logs ;;
         6) echo -e "${CYAN}退出脚本。再见！${NC}"; break ;;
         *) echo -e "${RED}无效的选择，请输入 1 到 6 之间的数字。${NC}" ;;
     esac
