@@ -100,8 +100,7 @@ ensure_lade_login() {
 
     echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
 
-    if ! lade apps list &> /dev/null; then
-
+ 
         echo -e "${YELLOW}Lade 登录会话已过期或未登录。${NC}请根据提示输入您的 Lade 登录凭据。"
 
         lade login
