@@ -46,34 +46,43 @@ check_lade_cli() {
     command_exists "$LADE_CLI_NAME"
 }
 
-# 修改后的 ensure_lade_login 函数，现在可以单独作为菜单选项调用
-# 同时，它在需要登录的操作中仍然会被调用以检查登录状态
-ensure_lade_login() {
+# 核心登录逻辑，可以被菜单直接调用，也可以被其他函数调用来检查并按需登录
+perform_lade_login() {
     echo ""
-    echo -e "${PURPLE}--- 检查/刷新 Lade 登录状态 ---${NC}"
-    # 尝试列出应用以检查登录状态，将标准输出和错误重定向到 /dev/null
-    if ! lade apps list &> /dev/null; then
-        echo -e "${YELLOW}Lade 登录会话已过期或未登录。${NC}请根据提示输入您的 Lade 登录凭据。"
-        # 强制将标准输入重定向到 /dev/tty，以便 lade login 可以接收用户输入
-        lade login </dev/tty
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}错误：Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
-            return 1 # 登录失败时返回非0，以便调用者可以判断
-        fi
-        echo -e "${GREEN}Lade 登录成功！${NC}"
-    else
-        echo -e "${GREEN}Lade 已登录。${NC}"
+    echo -e "${PURPLE}--- Lade 登录 ---${NC}"
+    echo -e "${YELLOW}请根据提示输入您的 Lade 登录凭据。${NC}"
+    lade login </dev/tty
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误：Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
+        return 1 # 登录失败时返回非0
     fi
-    return 0 # 登录成功或已登录时返回0
+    echo -e "${GREEN}Lade 登录成功！${NC}"
+    return 0 # 登录成功时返回0
+}
+
+# 检查登录状态的函数，不强制登录，只判断是否已登录
+check_login_status() {
+    echo ""
+    echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
+    if lade apps list &> /dev/null; then
+        echo -e "${GREEN}Lade 已登录。${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}Lade 未登录或登录会话已过期。${NC}"
+        return 1
+    fi
 }
 
 deploy_app() {
     display_section_header "部署 Lade 应用"
 
     # 在执行此操作前，先确保登录状态
-    if ! ensure_lade_login; then
-        echo -e "${RED}部署失败：需要登录才能继续。${NC}"
-        return
+    if ! check_login_status; then
+        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
+        if ! perform_lade_login; then # 尝试自动登录
+            echo -e "${RED}部署失败：登录 Lade 失败，无法继续。${NC}"
+            return
+        fi
     fi
 
     read -p "请输入您要部署的 Lade 应用名称 (例如: my-ladefree-app): " LADE_APP_NAME
@@ -93,8 +102,7 @@ deploy_app() {
     else
         echo -e "${YELLOW}应用 '${LADE_APP_NAME}' 不存在，将尝试创建新应用。${NC}"
         echo -e "${CYAN}注意：创建应用将交互式询问 'Plan' 和 'Region'，请手动选择。${NC}"
-        # 如果创建应用时也有交互式输入问题，可以考虑添加 </dev/tty
-        lade apps create "${LADE_APP_NAME}" </dev/tty
+        lade apps create "${LADE_APP_NAME}" </dev/tty # 确保创建应用时也能交互
         if [ $? -ne 0 ]; then
             echo -e "${RED}错误：Lade 应用创建失败。请检查输入或应用名称是否可用。${NC}"
             return
@@ -155,9 +163,12 @@ deploy_app() {
 view_apps() {
     display_section_header "查看所有 Lade 应用"
 
-    if ! ensure_lade_login; then
-        echo -e "${RED}操作失败：需要登录才能查看应用列表。${NC}"
-        return
+    if ! check_login_status; then
+        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
+        if ! perform_lade_login; then
+            echo -e "${RED}操作失败：登录 Lade 失败，无法查看应用列表。${NC}"
+            return
+        fi
     fi
 
     lade apps list
@@ -169,9 +180,12 @@ view_apps() {
 delete_app() {
     display_section_header "删除 Lade 应用"
 
-    if ! ensure_lade_login; then
-        echo -e "${RED}操作失败：需要登录才能删除应用。${NC}"
-        return
+    if ! check_login_status; then
+        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
+        if ! perform_lade_login; then
+            echo -e "${RED}操作失败：登录 Lade 失败，无法删除应用。${NC}"
+            return
+        fi
     fi
 
     read -p "请输入您要删除的 Lade 应用名称: " APP_TO_DELETE
@@ -199,9 +213,12 @@ delete_app() {
 view_app_logs() {
     display_section_header "查看 Lade 应用日志"
 
-    if ! ensure_lade_login; then
-        echo -e "${RED}操作失败：需要登录才能查看应用日志。${NC}"
-        return
+    if ! check_login_status; then
+        echo -e "${YELLOW}您尚未登录 Lade。请先进行登录。${NC}"
+        if ! perform_lade_login; then
+            echo -e "${RED}操作失败：登录 Lade 失败，无法查看应用日志。${NC}"
+            return
+        fi
     fi
 
     read -p "请输入您要查看日志的 Lade 应用名称: " APP_FOR_LOGS
@@ -264,8 +281,6 @@ install_lade_cli() {
             fi
             file_extension=".tar.gz" ;;
         windows)
-            # 注意：在 Bash 脚本中直接运行 Windows 可执行文件通常需要 WSL 或 Cygwin
-            # 这里的逻辑是为下载正确的文件，但在非原生 Windows shell 中运行可能需要特殊处理
             if [ "${arch_type}" == "x86_64" ]; then
                 arch_suffix="-amd64"
                 echo -e "${BLUE}检测到 Windows AMD64 (x86_64) 架构。${NC}"
@@ -326,7 +341,7 @@ while true; do
     echo -e "${CYAN}#############################################################${NC}"
     echo -e "${CYAN}#${NC}        ${BLUE}Lade 管理主菜单${NC}                          ${CYAN}#${NC}"
     echo -e "${CYAN}#############################################################${NC}"
-    echo -e "${GREEN}1. ${NC}Lade 登录/刷新登录状态" # 新增选项
+    echo -e "${GREEN}1. ${NC}Lade 登录 (强制)" # 新增选项，并明确提示是强制登录
     echo -e "${GREEN}2. ${NC}部署 Ladefree 应用"
     echo -e "${GREEN}3. ${NC}查看所有 Lade 应用"
     echo -e "${GREEN}4. ${NC}删除 Lade 应用"
@@ -336,7 +351,7 @@ while true; do
     read -p "请选择一个操作 (1-6): " CHOICE
 
     case "$CHOICE" in
-        1) ensure_lade_login ;; # 调用登录函数
+        1) perform_lade_login ;; # 菜单选项1直接调用 perform_lade_login
         2) deploy_app ;;
         3) view_apps ;;
         4) delete_app ;;
