@@ -42,6 +42,51 @@ command_exists() {
     command -v "$1" &> /dev/null
 }
 
+# 新增函数：自动安装缺失的软件包
+install_package() {
+    local package_name="$1"
+    echo -e "${YELLOW}正在尝试安装缺失的命令: '${package_name}'...${NC}"
+
+    local os_type=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+    case "${os_type}" in
+        linux)
+            # Debian/Ubuntu
+            if command_exists apt-get; then
+                sudo apt-get update && sudo apt-get install -y "${package_name}"
+            # RedHat/CentOS
+            elif command_exists yum; then
+                sudo yum install -y "${package_name}"
+            # Fedora
+            elif command_exists dnf; then
+                sudo dnf install -y "${package_name}"
+            else
+                echo -e "${RED}错误：未找到支持的 Linux 包管理器（apt-get, yum, dnf）。请手动安装 '${package_name}'。${NC}"
+                return 1
+            fi
+            ;;
+        darwin) # macOS
+            if command_exists brew; then
+                brew install "${package_name}"
+            else
+                echo -e "${RED}错误：在 macOS 上未找到 Homebrew。请先安装 Homebrew (https://brew.sh/)，然后手动安装 '${package_name}'。${NC}"
+                return 1
+            fi
+            ;;
+        *)
+            echo -e "${RED}错误：不支持您的操作系统 '${os_type}' 的自动安装。请手动安装 '${package_name}'。${NC}"
+            return 1
+            ;;
+    esac
+
+    if ! command_exists "${package_name}"; then
+        echo -e "${RED}错误：自动安装 '${package_name}' 失败。请手动安装后重试。${NC}"
+        return 1
+    fi
+    echo -e "${GREEN}'${package_name}' 已成功安装。${NC}"
+    return 0
+}
+
 check_lade_cli() {
     command_exists "$LADE_CLI_NAME"
 }
@@ -49,9 +94,11 @@ check_lade_cli() {
 ensure_lade_login() {
     echo ""
     echo -e "${PURPLE}--- 检查 Lade 登录状态 ---${NC}"
-    if ! lade apps list ; then
+    if ! lade apps list; then
+        echo -e "${RED}错误：Lade 未登录或登录失败。请手动运行 'lade login' 进行登录。${NC}"
+        
         if [ $? -ne 0 ]; then
-            echo -e "${RED}错误：Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
+            echo -e "${RED}Lade 登录失败。请检查用户名/密码或网络连接。${NC}"
             exit 1
         fi
         echo -e "${GREEN}Lade 登录成功！${NC}"
@@ -92,7 +139,8 @@ deploy_app() {
 
     echo ""
     echo -e "${BLUE}--- 正在下载 ZIP 并部署 Ladefree 应用 (不依赖 Git) ---${NC}"
-    local ladefree_temp_download_dir="/tmp/ladefree_repo_download_$$"
+    # 使用当前目录下的一个子目录进行下载和解压
+    local ladefree_temp_download_dir="./ladefree_temp_download"
     mkdir -p "${ladefree_temp_download_dir}"
 
     local ladefree_download_url="${LADEFREE_REPO_URL_BASE}/archive/refs/heads/${LADEFREE_REPO_BRANCH}.zip"
@@ -108,12 +156,13 @@ deploy_app() {
     fi
 
     echo "下载完成，正在解压..."
-    if ! unzip "${temp_ladefree_archive}" -d "${ladefree_temp_download_dir}"; then
+    if ! unzip -o "${temp_ladefree_archive}" -d "${ladefree_temp_download_dir}"; then # -o 选项用于覆盖现有文件
         echo -e "${RED}错误：解压 Ladefree ZIP 包失败。${NC}"
         rm -rf "${ladefree_temp_download_dir}" || true
         return
     fi
 
+    # 查找解压后的应用程序目录，通常是 ladefree-main/ 或 ladefree-分支名/
     local extracted_app_path=$(find "${ladefree_temp_download_dir}" -maxdepth 1 -type d -name "ladefree-*" -print -quit)
 
     if [ -z "${extracted_app_path}" ]; then
@@ -199,6 +248,29 @@ view_app_logs() {
 install_lade_cli() {
     display_section_header "检查或安装 Lade CLI"
 
+    if ! command_exists curl; then install_package curl || exit 1; fi
+    local os_type=$(uname -s | tr '[:upper:]' '[:lower:]')
+    if [ "${os_type}" == "linux" ]; then
+        if ! command_exists tar; then install_package tar || exit 1; fi
+        if ! command_exists unzip; then install_package unzip || exit 1; fi
+    elif [ "${os_type}" == "darwin" ]; then
+        if ! command_exists tar; then install_package tar || exit 1; fi # macOS通常自带tar，但以防万一
+        if ! command_exists unzip; then install_package unzip || exit 1; fi # macOS通常自带unzip，但以防万一
+    elif [ "${os_type}" == "windows" ]; then
+       
+        echo -e "${YELLOW}注意：在 Windows 环境下，请确保 tar 和 unzip 命令可用。${NC}"
+        if ! command_exists unzip; then
+            echo -e "${RED}错误：Windows 环境未检测到 'unzip' 命令。请手动安装。${NC}"
+            exit 1
+        fi
+        if ! command_exists tar; then
+             echo -e "${RED}错误：Windows 环境未检测到 'tar' 命令。请手动安装。${NC}"
+            exit 1
+        fi
+    fi
+    if ! command_exists awk; then install_package awk || exit 1; fi
+
+    # --- Lade CLI 检查与安装 ---
     if check_lade_cli; then
         echo -e "${GREEN}Lade CLI 已安装：$(which "$LADE_CLI_NAME")${NC}"
         return 0
@@ -207,10 +279,10 @@ install_lade_cli() {
     echo -e "${YELLOW}Lade CLI 未安装。正在尝试自动安装 Lade CLI...${NC}"
 
     local lade_release_url="https://github.com/lade-io/lade/releases"
-    local lade_temp_dir="/tmp/lade_cli_download_temp_$$"
+    # 使用当前目录下的子目录进行下载和解压，而不是 /tmp
+    local lade_temp_dir="./lade_cli_install_temp"
     mkdir -p "${lade_temp_dir}"
 
-    local os_type=$(uname -s | tr '[:upper:]' '[:lower:]')
     local arch_type=$(uname -m)
 
     local arch_suffix=""
@@ -258,11 +330,6 @@ install_lade_cli() {
         *) echo -e "${RED}错误：不支持的操作系统：${os_type}${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1 ;;
     esac
 
-    if ! command_exists curl; then echo -e "${RED}错误：'curl' 命令未找到。请安装 curl 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
-    if [ "${file_extension}" == ".tar.gz" ] && ! command_exists tar; then echo -e "${RED}错误：'tar' 命令未找到。请安装 tar 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
-    if [ "${file_extension}" == ".zip" ] && ! command_exists unzip; then echo -e "${RED}错误：'unzip' 命令未找到。请安装 unzip 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
-    if ! command_exists awk; then echo -e "${RED}错误：'awk' 命令未找到。请安装 awk 后再运行此脚本。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
-
     echo "正在获取最新版本的 Lade CLI..."
     local latest_release_tag=$(curl -s "https://api.github.com/repos/lade-io/lade/releases/latest" | awk -F'"' '/"tag_name":/{print $4}')
     if [ -z "${latest_release_tag}" ]; then echo -e "${RED}错误：无法获取最新版本的 Lade CLI。请检查网络或 GitHub API 限制。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
@@ -271,37 +338,65 @@ install_lade_cli() {
 
     local filename_to_download="lade-${os_type}${arch_suffix}${file_extension}"
     local download_url="${lade_release_url}/download/${lade_version}/${filename_to_download}"
-    local temp_archive="${lade_temp_dir}/${filename_to_download}"
+    local temp_archive="${lade_temp_dir}/${filename_to_download}" # 下载到子目录
 
     echo "下载 URL: ${download_url}"
     echo "正在下载 ${filename_to_download} 到 ${temp_archive}..."
     if ! curl -L --fail -o "${temp_archive}" "${download_url}"; then echo -e "${RED}错误：下载 Lade CLI 失败。请检查网络连接或 URL 是否正确。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
 
     echo "下载完成，正在解压..."
-    if [ "${file_extension}" == ".tar.gz" ]; then if ! tar -xzf "${temp_archive}" -C "${lade_temp_dir}"; then echo -e "${RED}错误：解压 .tar.gz 文件失败。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
-    elif [ "${file_extension}" == ".zip" ]; then if ! unzip "${temp_archive}" -d "${lade_temp_dir}"; then echo -e "${RED}错误：解压 .zip 文件失败。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
+    # 使用 -o 选项覆盖现有文件，-C 解压到指定目录
+    if [ "${file_extension}" == ".tar.gz" ]; then if ! tar -xzof "${temp_archive}" -C "${lade_temp_dir}"; then echo -e "${RED}错误：解压 .tar.gz 文件失败。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
+    elif [ "${file_extension}" == ".zip" ]; then if ! unzip -o "${temp_archive}" -d "${lade_temp_dir}"; then echo -e "${RED}错误：解压 .zip 文件失败。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
     else echo -e "${RED}错误：不支持的压缩文件格式：${file_extension}${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
 
-    local extracted_lade_path=$(find "${lade_temp_dir}" -type f -name "${LADE_CLI_NAME}" -perm +111 2>/dev/null | head -n 1)
-    if [ -z "${extracted_lade_path}" ]; then echo -e "${RED}错误：在解压后的临时目录中未找到 '${LADE_CLI_NAME}' 可执行文件。请检查压缩包内容。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
+    # 假设 lade 可执行文件在解压后的目录内，或者直接在临时目录中
+    local extracted_lade_path=""
+    # 尝试在 lade_temp_dir 根目录查找
+    if [ -f "${lade_temp_dir}/${LADE_CLI_NAME}" ]; then
+        extracted_lade_path="${lade_temp_dir}/${LADE_CLI_NAME}"
+    else
+        # 否则，递归查找
+        extracted_lade_path=$(find "${lade_temp_dir}" -type f -name "${LADE_CLI_NAME}" -perm +111 2>/dev/null | head -n 1)
+    fi
+
+    if [ -z "${extracted_lade_path}" ]; then
+        echo -e "${RED}错误：在解压后的临时目录中未找到 '${LADE_CLI_NAME}' 可执行文件。请检查压缩包内容。${NC}"
+        rm -rf "${lade_temp_dir}" || true
+        exit 1
+    fi
+
+    # 确保找到的文件有执行权限
+    if [ ! -x "${extracted_lade_path}" ]; then
+        echo -e "${YELLOW}警告：找到的 '${LADE_CLI_NAME}' 文件没有执行权限，正在添加...${NC}"
+        chmod +x "${extracted_lade_path}"
+    fi
 
     echo "正在将 Lade CLI 移动到 ${LADE_INSTALL_PATH}..."
-    if ! sudo mv "${extracted_lade_path}" "${LADE_INSTALL_PATH}"; then echo -e "${RED}错误：移动 Lade CLI 文件失败。可能需要管理员权限或目录不存在。${NC}"; rm -rf "${lade_temp_dir}" || true; exit 1; fi
+    if ! sudo mv "${extracted_lade_path}" "${LADE_INSTALL_PATH}"; then
+        echo -e "${RED}错误：移动 Lade CLI 文件失败。可能需要管理员权限或目录不存在。${NC}"
+        rm -rf "${lade_temp_dir}" || true
+        exit 1
+    fi
+    # 再次确保最终位置的文件有执行权限
     sudo chmod +x "${LADE_INSTALL_PATH}"
 
     echo -e "${GREEN}Lade CLI 已成功下载、解压并安装到 ${LADE_INSTALL_PATH}${NC}"
+    # 清理临时下载目录
     rm -rf "${lade_temp_dir}" || true
     return 0
 }
 
+# --- 脚本主流程 ---
 display_welcome
 
+# 尝试安装 Lade CLI，如果失败则退出
 install_lade_cli || exit 1
 
 while true; do
     echo ""
     echo -e "${CYAN}#############################################################${NC}"
-    echo -e "${CYAN}#${NC}        ${BLUE}Lade 管理主菜单${NC}                          ${CYAN}#${NC}"
+    echo -e "${CYAN}#${NC}        ${BLUE}Lade 管理主菜单${NC}                            ${CYAN}#${NC}"
     echo -e "${CYAN}#############################################################${NC}"
     echo -e "${GREEN}1. ${NC}部署 Ladefree 应用"
     echo -e "${GREEN}2. ${NC}查看所有 Lade 应用"
