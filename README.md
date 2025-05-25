@@ -30,7 +30,6 @@
     ```bash
     bash <(curl -l -s https://raw.githubusercontent.com/byJoey/ladefree/refs/heads/main/install.sh)
     ```
-## 第一次运行安装完依赖后要重启终端输入     lade login
 
 
 2.  **脚本运行步骤：**
@@ -51,7 +50,6 @@
     ```powershell
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/byJoey/ladefree/main/install.ps1" -OutFile "$env:TEMP\install.ps1"; PowerShell -ExecutionPolicy Bypass -File "$env:TEMP\install.ps1"; Remove-Item "$env:TEMP\install.ps1" -ErrorAction SilentlyContinue
     ```
-## 第一次运行安装完依赖后要重启终端输入     lade login
 
       * 此命令将脚本下载到临时文件夹。
       * 然后使用 `-ExecutionPolicy Bypass` 参数执行该脚本。
